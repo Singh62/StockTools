@@ -151,11 +151,12 @@
     if (loaded && window.gtag) window.gtag('event', name, params);
   }
 
+  function base() { var l = document.querySelector('link[rel=icon]'); return l ? (l.getAttribute('href') || '').replace('/assets/images/favicon.svg', '') : ''; }
   function banner() {
     if (document.getElementById('consent')) return;
     var d = document.createElement('div');
     d.id = 'consent'; d.className = 'consent'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-label', 'Cookie consent');
-    d.innerHTML = '<p>We use cookies for analytics' + (adsOn ? ' and advertising' : '') + '. Your calculator inputs are never sent. See our <a href="/privacy">Privacy Policy</a>.</p>' +
+    d.innerHTML = '<p>We use cookies for analytics' + (adsOn ? ' and advertising' : '') + '. Your calculator inputs are never sent. See our <a href="' + base() + '/privacy">Privacy Policy</a>.</p>' +
       '<div><button type="button" class="btn btn-secondary" data-c="denied">Decline</button> <button type="button" class="btn" data-c="granted">Accept</button></div>';
     d.addEventListener('click', function (e) {
       var v = e.target.getAttribute && e.target.getAttribute('data-c'); if (!v) return;
