@@ -1,0 +1,3 @@
+# Cloudflare Pages redirects. Format: /from /to [status]
+# Pages already serves clean URLs (/tools/finance/emi-calculator) and redirects *.html to them.
+# Add the www -> apex redirect in Cloudflare (Bulk Redirects or a Redirect Rule), see DEPLOYMENT_GUIDE.md.

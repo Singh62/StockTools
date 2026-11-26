@@ -1,0 +1,118 @@
+/* Shared helpers: pure number/format utilities (unit-tested) + small DOM helpers. */
+(function (root, factory) {
+  var api = factory(root);
+  if (typeof module === 'object' && module.exports) { module.exports = api; }
+  else {
+    root.ST = Object.assign(root.ST || {}, api);
+    document.addEventListener('DOMContentLoaded', function () { root.ST._boot(); });
+  }
+})(typeof window !== 'undefined' ? window : globalThis, function (root) {
+  'use strict';
+
+  /* ---------- pure helpers ---------- */
+  function parseNumber(v) {
+    if (v === null || v === undefined) return NaN;
+    var s = String(v).replace(/[,\s₹$]/g, '');
+    if (!/^[+-]?(\d+\.?\d*|\.\d+)$/.test(s)) return NaN;
+    return Number(s);
+  }
+  function round(n, d) { var f = Math.pow(10, d === undefined ? 2 : d); return Math.round((n + Number.EPSILON) * f) / f; }
+  function fmtINR(n, d) {
+    d = d === undefined ? 2 : d;
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: d, maximumFractionDigits: d }).format(n);
+  }
+  function fmtNum(n, maxD) {
+    return new Intl.NumberFormat('en-IN', { maximumFractionDigits: maxD === undefined ? 6 : maxD }).format(n);
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; });
+  }
+  var api = { parseNumber: parseNumber, round: round, fmtINR: fmtINR, fmtNum: fmtNum, esc: esc };
+  if (typeof document === 'undefined') return api;
+
+  /* ---------- DOM helpers ---------- */
+  var used = false;
+  api.track = function (name, params) {
+    if (root.ST && root.ST.analytics) root.ST.analytics.track(name, params || {});
+  };
+  api.toolInfo = function () {
+    var b = document.body;
+    return { tool_name: b.dataset.tool || '', tool_category: b.dataset.category || '' };
+  };
+  api.trackUse = function () {
+    if (used || !document.body.dataset.tool) return;
+    used = true; api.track('tool_use', api.toolInfo());
+  };
+  api.showError = function (msg) {
+    var el = document.getElementById('tool-error');
+    if (!el) return;
+    el.textContent = msg || ''; el.hidden = !msg;
+    if (msg) api.track('tool_error', api.toolInfo()); // message text is NOT sent (may echo user input)
+  };
+  api.copyText = function (text, btn) {
+    function done(ok) {
+      if (btn) { var old = btn.dataset.label || (btn.dataset.label = btn.textContent); btn.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(function () { btn.textContent = old; }, 1500); }
+      if (ok) api.track('copy_result', api.toolInfo());
+    }
+    if (!text) { done(false); return; }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(fallback()); });
+    } else done(fallback());
+    function fallback() {
+      var t = document.createElement('textarea'); t.value = text; t.style.position = 'fixed'; t.style.opacity = '0';
+      document.body.appendChild(t); t.select(); var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      document.body.removeChild(t); return ok;
+    }
+  };
+  api.stat = function (label, value, primary) {
+    return '<div class="stat' + (primary ? ' stat-primary' : '') + '"><dt>' + esc(label) + '</dt><dd>' + esc(value) + '</dd></div>';
+  };
+  api.splitBar = function (aLabel, a, bLabel, b) {
+    var t = a + b, pa = t > 0 ? Math.round(a / t * 1000) / 10 : 0;
+    return '<div class="bar" role="img" aria-label="' + esc(aLabel) + ' ' + pa + '%, ' + esc(bLabel) + ' ' + (Math.round((100 - pa) * 10) / 10) + '%">' +
+      '<span class="bar-a" style="width:' + pa + '%"></span></div>' +
+      '<p class="bar-legend"><span class="dot dot-a"></span>' + esc(aLabel) + ' ' + pa + '% <span class="dot dot-b"></span>' + esc(bLabel) + ' ' + (Math.round((100 - pa) * 10) / 10) + '%</p>';
+  };
+
+  /* Standard calculator form: handler() -> {error} | {html, copy}. Recalculates live after the first success. */
+  api.bindCalculator = function (form, handler) {
+    var out = document.getElementById('result'), copyBtn = document.getElementById('copy-btn'), copyText = '', ok = false, timer, drawn = false;
+    function run(manual) {
+      var r = handler();
+      if (r.error) { api.showError(r.error); if (manual) { out.hidden = true; ok = false; } return; }
+      api.showError(''); out.innerHTML = r.html; out.hidden = false; copyText = r.copy || ''; ok = true;
+      if (r.after) { try { r.after(out, manual || !drawn); } catch (x) { /* chart failure must not break the calculator */ } } drawn = true;
+      if (copyBtn) copyBtn.hidden = false;
+      if (manual) { api.track('tool_result', api.toolInfo()); if (out.getBoundingClientRect().bottom > window.innerHeight) out.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    }
+    form.addEventListener('submit', function (e) { e.preventDefault(); api.trackUse(); run(true); });
+    form.addEventListener('input', function () { api.trackUse(); if (ok) { clearTimeout(timer); timer = setTimeout(function () { run(false); }, 200); } });
+    form.addEventListener('reset', function () { setTimeout(function () { ok = false; out.hidden = true; out.innerHTML = ''; api.showError(''); if (copyBtn) copyBtn.hidden = true; if (api.onReset) api.onReset(); }, 0); });
+    if (copyBtn) copyBtn.addEventListener('click', function () { api.copyText(copyText, copyBtn); });
+    if (form.hasAttribute('data-auto')) run(false);
+  };
+
+  api._boot = function () {
+    var nav = document.getElementById('nav'), tg = document.getElementById('nav-toggle');
+    if (tg && nav) tg.addEventListener('click', function () { var o = nav.classList.toggle('open'); tg.setAttribute('aria-expanded', o); });
+    if (document.body.dataset.tool) api.track('tool_open', api.toolInfo());
+    function paintTheme() { var d = document.documentElement.dataset.theme === 'dark'; document.querySelectorAll('.theme').forEach(function (b) { b.setAttribute('aria-pressed', d); b.textContent = d ? '◐ Light mode' : '◐ Dark mode'; }); }
+    paintTheme();
+    document.querySelectorAll('input[data-range]').forEach(function (inp) {
+      var p = inp.dataset.range.split(',').map(Number), r = document.createElement('input');
+      r.type = 'range'; r.className = 'rng'; r.min = p[0]; r.max = p[1]; r.step = p[2]; r.setAttribute('aria-label', 'Adjust ' + (inp.name || 'value'));
+      function fromText() { var v = parseNumber(inp.value); if (v === v) r.value = Math.min(Math.max(v, p[0]), p[1]); }
+      fromText(); inp.parentNode.insertBefore(r, inp.nextSibling);
+      r.addEventListener('input', function () { inp.value = r.value; inp.dispatchEvent(new Event('input', { bubbles: true })); });
+      inp.addEventListener('input', fromText); inp.form && inp.form.addEventListener('reset', function () { setTimeout(fromText, 0); });
+    });
+    document.addEventListener('click', function (e) {
+      var t = e.target.closest && e.target.closest('[data-theme-toggle]');
+      if (t) { var next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = next; try { localStorage.setItem('st_theme', next); } catch (x) { /* not persisted */ } paintTheme(); return; }
+      var a = e.target.closest && e.target.closest('[data-related]');
+      if (a) api.track('related_click', { from_tool: document.body.dataset.tool || '', to_tool: a.dataset.related });
+    });
+  };
+  return api;
+});
